@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VPWA</title>
+<style>
+  :root {
+    --glass-bg: rgba(255,255,255,0.08);
+    --glass-border: rgba(255,255,255,0.15);
+    --text-color: rgba(255,255,255,0.85);
+    --accent-color: #007aff;
+  }
+
+  body {
+    margin: 0;
+    background: black;
+    overflow: hidden;
+    height: 100vh;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display","SF Pro Text", sans-serif;
+    color: var(--text-color);
+    display: flex; justify-content: center; align-items: center; flex-direction: column;
+  }
+
+  #ambient {
+    position: fixed; inset: 0;
+    filter: blur(60px) brightness(0.6) saturate(1.3);
+    z-index: -1; transition: opacity .5s ease;
+  }
+
+  video {
+    border-radius: 20px; 
+    box-shadow: 0 8px 40px rgba(0,0,0,.6);
+    background: black; transition: transform .3s ease;
+    object-fit: fill; /* Stretch to aspect ratio */
+    display: block;
+  }
+  video:hover { transform: scale(1.01); }
+
+  video::cue {
+    background: rgba(0,0,0,0.55);
+    color: #fff;
+    text-shadow: 0 2px 4px rgba(0,0,0,0.9);
+    line-height: 1.4;
+  }
+
+.controls {
+  position: fixed;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 20px;
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px);
+  border: 1px solid var(--glass-border);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  opacity: 1;
+  max-height: 200px;
+  transform: translateX(-50%) translateY(0);
+  transition: all 0.5s ease;
+  overflow: hidden;
+}
+
+.controls.hidden {
+  opacity: 0;
+  max-height: 0;
+  transform: translateX(-50%) translateY(20px); /* slide down */
+  padding: 0 20px;
+}
+
+  .file-btn, .fullscreen-btn, .sub-btn, .cc-btn {
+    padding: 8px 14px; background: var(--accent-color); color:#fff; font-weight:500;
+    border:none; border-radius:8px; cursor:pointer; transition: background .3s ease;
+  }
+  .file-btn:hover, .fullscreen-btn:hover, .sub-btn:hover, .cc-btn:hover { background:#0062cc; }
+
+  input[type="file"] { display:none; }
+
+  .slider {
+    -webkit-appearance: none; height: 6px; background: var(--glass-border);
+    border-radius:3px; outline:none; width:100px;
+  }
+  .slider::-webkit-slider-thumb {
+    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background: var(--accent-color); cursor:pointer; box-shadow:0 0 4px rgba(0,0,0,.5);
+  }
+
+  select, input[type="number"] {
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--glass-border);
+    background: var(--glass-bg);
+    color: var(--text-color);
+    font-size: 14px;
+    cursor: pointer;
+  }
+
+  .custom-ratio-inputs {
+    display: none;
+    gap: 5px;
+    align-items: center;
+  }
+
+   /* زرار السهم */
+.toggle-btn {
+  position: fixed;
+  bottom: 55px; /* فوق الشريط */
+  left: 78%;
+  transform: translateX(-50%) rotate(0deg);
+  background: var(--glass-bg);
+  backdrop-filter: blur(20px) saturate(1.8);
+  border: 1px solid var(--glass-border);
+  border-radius: 50%;
+  width: 36px;
+  height: 36px;
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: bold;
+  line-height: 36px;
+  text-align: center;
+  color: var(--text-color);
+  transition: opacity 0.5s ease, transform 0.4s ease, bottom 0.4s ease;
+  z-index: 1000;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+  opacity: 1;
+}
+.toggle-btn:hover { background:#0062cc; }
+.toggle-btn.dimmed { opacity: 0.5; }
+
+/* لما يتقفل الـ controls */
+.toggle-btn.up {
+  transform: translateX(-50%) rotate(180deg); /* السهم يلف لفوق */
+  bottom: 10px; /* ينزل مكان الشريط */
+}
+
+</style>
+</head>
+<body>
+
+<canvas id="ambient"></canvas>
+
+<video id="player" controls crossorigin="anonymous" playsinline></video>
+
+<!-- زرار السهم -->
+<button class="toggle-btn" id="toggleBtn">▼</button>
+
+<div class="controls" id="controls">
+  <input type="file" id="fileInput" accept="video/*">
+  <button class="file-btn" id="selectBtn">Browse Video</button>
+
+  <label style="font-size:14px;">Scale:</label>
+  <input type="range" min="0.5" max="1.5" step="0.05" value="1" class="slider" id="scaleSlider">
+
+  <label style="font-size:14px;">Ambient Speed:</label>
+  <input type="range" min="1" max="60" step="1" value="30" class="slider" id="speedSlider">
+
+  <label style="font-size:14px;">Aspect Ratio:</label>
+  <select id="aspectRatioSelect">
+    <option value="original">Original</option>
+    <option value="16:9">16:9</option>
+    <option value="9:16">9:16</option>
+    <option value="4:3">4:3</option>
+    <option value="21:9">21:9</option>
+    <option value="1:1">1:1</option>
+    <option value="custom">Custom</option>
+  </select>
+
+  <div class="custom-ratio-inputs" id="customRatioInputs">
+    <input type="number" id="customWidth" min="1" placeholder="W" style="width:50px;">
+    <span>:</span>
+    <input type="number" id="customHeight" min="1" placeholder="H" style="width:50px;">
+    <button class="file-btn" id="applyCustomRatio">Apply</button>
+  </div>
+
+  <input type="file" id="subInput" accept=".vtt,.srt">
+  <button class="sub-btn" id="subBtn">Load Subtitles</button>
+  <button class="cc-btn" id="ccBtn">CC: On</button>
+
+  <label style="font-size:14px;">Sub Size:</label>
+  <input type="range" min="10" max="50" step="1" value="18" class="slider" id="subSize">
+
+  <label style="font-size:14px;">Delay (s):</label>
+  <input type="range" min="-5" max="5" step="0.1" value="0" class="slider" id="subDelay">
+  <span id="subDelayValue">0.0s</span>
+
+  <button class="fullscreen-btn" id="fullscreenBtn">Fullscreen</button>
+</div>
+
+<script>
+const video = document.getElementById('player');
+const canvas = document.getElementById('ambient');
+const ctx = canvas.getContext('2d');
+
+const controls = document.getElementById('controls');
+const fileInput = document.getElementById('fileInput');
+const selectBtn = document.getElementById('selectBtn');
+const scaleSlider = document.getElementById('scaleSlider');
+const speedSlider = document.getElementById('speedSlider');
+const fullscreenBtn = document.getElementById('fullscreenBtn');
+
+const subInput = document.getElementById('subInput');
+const subBtn = document.getElementById('subBtn');
+const ccBtn = document.getElementById('ccBtn');
+const subSizeSlider = document.getElementById('subSize');
+const subDelaySlider = document.getElementById('subDelay');
+const subDelayDisplay = document.getElementById('subDelayValue');
+
+const aspectRatioSelect = document.getElementById('aspectRatioSelect');
+const customRatioInputs = document.getElementById('customRatioInputs');
+const customWidth = document.getElementById('customWidth');
+const customHeight = document.getElementById('customHeight');
+const applyCustomRatioBtn = document.getElementById('applyCustomRatio');
+
+const toggleBtn = document.getElementById('toggleBtn');
+
+let scaleValue = 1;
+let ambientSpeed = 30;
+let lastDraw = 0;
+let inactivityTimer, dimTimer;
+let subDelayValue = 0;
+let originalCues = null;
+let naturalAspectRatio = null;
+let controlsVisible = true;
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
+
+selectBtn.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  video.src = url;
+  video.play().catch(()=>{});
+  video.onloadedmetadata = () => {
+    naturalAspectRatio = video.videoWidth / video.videoHeight;
+    updateAspectRatio();
+  };
+});
+
+scaleSlider.addEventListener('input', (e) => {
+  scaleValue = parseFloat(e.target.value);
+  updateAspectRatio();
+});
+
+speedSlider.addEventListener('input', (e) => {
+  ambientSpeed = parseInt(e.target.value, 10);
+});
+
+fullscreenBtn.addEventListener('click', () => {
+  if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+  else document.exitFullscreen();
+});
+
+subBtn.addEventListener('click', () => subInput.click());
+subInput.addEventListener('change', (e) => {
+  const file = e.target.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    let text = reader.result;
+    if (file.name.toLowerCase().endsWith('.srt')) text = srtToVtt(text);
+    else if (!text.startsWith('WEBVTT')) text = 'WEBVTT\n\n' + text;
+    [...video.querySelectorAll('track')].forEach(t => t.remove());
+    const trackEl = document.createElement('track');
+    trackEl.kind='subtitles'; trackEl.label=file.name;
+    trackEl.srclang = guessLang(file.name)||'en'; trackEl.default = true;
+    trackEl.src = URL.createObjectURL(new Blob([text], {type:'text/vtt'}));
+    video.appendChild(trackEl);
+    trackEl.addEventListener('load', () => {
+      trackEl.track.mode = 'showing';
+      ccBtn.textContent = 'CC: On';
+      saveOriginalCues(); applySubDelay();
+    });
+  };
+  reader.readAsText(file);
+});
+
+ccBtn.addEventListener('click', () => {
+  const tt = video.textTracks[0]; if (!tt) return;
+  tt.mode = (tt.mode==='showing')?'hidden':'showing';
+  ccBtn.textContent = 'CC: '+(tt.mode==='showing'?'On':'Off');
+});
+
+subSizeSlider.addEventListener('input', () => {
+  const size=subSizeSlider.value+'px';
+  let style=document.getElementById('subStyle');
+  if(!style){ style=document.createElement('style'); style.id='subStyle'; document.head.appendChild(style);}
+  style.textContent=`video::cue { font-size: ${size} !important; }`;
+});
+
+subDelaySlider.addEventListener('input', () => {
+  subDelayValue=parseFloat(subDelaySlider.value);
+  subDelayDisplay.textContent=subDelayValue.toFixed(1)+'s';
+  applySubDelay();
+});
+
+aspectRatioSelect.addEventListener('change', () => {
+  customRatioInputs.style.display = aspectRatioSelect.value==='custom'?'flex':'none';
+  updateAspectRatio();
+});
+applyCustomRatioBtn.addEventListener('click', ()=>updateAspectRatio(true));
+
+function updateAspectRatio(forceCustom=false){
+  if(!video.videoWidth || !video.videoHeight) return;
+
+  const maxWidth = window.innerWidth * 0.85 * scaleValue;
+  const maxHeight = window.innerHeight * 0.7 * scaleValue;
+  let targetRatio = video.videoWidth / video.videoHeight;
+
+  const value = aspectRatioSelect.value;
+  if(value==='custom' || forceCustom){
+    if(customWidth.value>0 && customHeight.value>0) targetRatio=customWidth.value/customHeight.value;
+  } else if(value!=='original'){
+    if(value==='9:16') targetRatio=9/16;
+    else { const [w,h]=value.split(':').map(Number); targetRatio=w/h; }
+  } else if(naturalAspectRatio) targetRatio=naturalAspectRatio;
+
+  let width = maxWidth;
+  let height = width / targetRatio;
+  if(height > maxHeight){
+    height = maxHeight;
+    width = height * targetRatio;
+  }
+
+  video.style.width = width + 'px';
+  video.style.height = height + 'px';
+  video.style.transform = `scale(1)`;
+}
+
+function saveOriginalCues(){
+  const tt=video.textTracks[0]; if(!tt) return;
+  originalCues=[];
+  for(const cue of tt.cues) originalCues.push({cue,start:cue.startTime,end:cue.endTime});
+}
+
+function applySubDelay(){
+  const tt=video.textTracks[0]; if(!tt || !originalCues) return;
+  originalCues.forEach(({cue,start,end})=>{ cue.startTime=start+subDelayValue; cue.endTime=end+subDelayValue; });
+}
+
+function guessLang(name){
+  const m=name.toLowerCase().match(/\.(en|ar|fr|de|es|it|tr|ru|pt|zh|ja|ko)\b/);
+  return m?m[1]:null;
+}
+
+function srtToVtt(srt){
+  srt=srt.replace(/\r+/g,'').trim();
+  srt=srt.replace(/^\d+\s*\n(?=\d{2}:\d{2}:\d{2},\d{3}\s-->\s)/gm,'');
+  srt=srt.replace(/(\d{2}:\d{2}:\d{2}),(\d{3})\s-->\s(\d{2}:\d{2}:\d{2}),(\d{3})/g,'$1.$2 --> $3.$4');
+  return 'WEBVTT\n\n'+srt;
+}
+
+function drawAmbient(timestamp){
+  const interval=1000/ambientSpeed;
+  if(timestamp-lastDraw>interval){
+    if(!video.paused && !video.ended && video.videoWidth){
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(video,0,0,canvas.width,canvas.height);
+    }
+    lastDraw=timestamp;
+  }
+  requestAnimationFrame(drawAmbient);
+}
+drawAmbient();
+
+function resetInactivity(){
+  if(controlsVisible) controls.style.opacity="1";
+  toggleBtn.classList.remove("dimmed");
+
+  clearTimeout(inactivityTimer);
+  clearTimeout(dimTimer);
+
+  // بعد 5 ثواني يقلل شفافية الشريط + زرار السهم
+  inactivityTimer=setTimeout(()=>{if(controlsVisible) controls.style.opacity="0.2";},5000);
+  dimTimer=setTimeout(()=>{toggleBtn.classList.add("dimmed");},5000);
+}
+document.addEventListener("mousemove",resetInactivity);
+document.addEventListener("keydown",resetInactivity);
+document.addEventListener("touchstart",resetInactivity);
+controls.addEventListener("mouseenter",()=>controls.style.opacity="1");
+controls.addEventListener("mouseleave",resetInactivity);
+resetInactivity();
+
+// toggle controls
+toggleBtn.addEventListener('click', () => {
+  controls.classList.toggle('hidden');
+
+  if (controls.classList.contains('hidden')) {
+    toggleBtn.classList.add('up');   // يدي أنيميشن لفوق
+  } else {
+    toggleBtn.classList.remove('up'); // يرجعه لتحت
+  }
+});
+</script>
+
+</body>
+</html>
